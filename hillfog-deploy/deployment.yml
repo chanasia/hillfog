@@ -1,0 +1,173 @@
+---
+# PersistentVolume for H2 database
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: hillfog-pv
+  labels:
+    app: hillfog
+spec:
+  capacity:
+    storage: 5Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  hostPath:
+    path: /mnt/data/hillfog
+    type: DirectoryOrCreate
+
+---
+# PersistentVolumeClaim for H2 database
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: hillfog-data-pvc
+  namespace: hillfog
+  labels:
+    app: hillfog
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  selector:
+    matchLabels:
+      app: hillfog
+
+---
+# ConfigMap for application configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hillfog-config
+  namespace: hillfog
+  labels:
+    app: hillfog
+data:
+  JAVA_OPTS: "-Xmx512M"
+
+---
+# Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hillfog-deployment
+  namespace: hillfog
+  labels:
+    app: hillfog
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hillfog
+  template:
+    metadata:
+      labels:
+        app: hillfog
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+      - name: hillfog
+        image: 192.168.1.88:5000/hillfog:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8088
+          name: http
+        env:
+        - name: JAVA_OPTS
+          valueFrom:
+            configMapKeyRef:
+              name: hillfog-config
+              key: JAVA_OPTS
+        - name: HOME
+          value: "/home/hillfog"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        volumeMounts:
+        - name: hillfog-data
+          mountPath: /home/hillfog
+        - name: app-data
+          mountPath: /app/data
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 8088
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8088
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+      volumes:
+      - name: hillfog-data
+        persistentVolumeClaim:
+          claimName: hillfog-data-pvc
+      - name: app-data
+        emptyDir: {}
+      restartPolicy: Always
+
+---
+# Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: hillfog-service
+  namespace: hillfog
+  labels:
+    app: hillfog
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8088
+    targetPort: 8088
+    protocol: TCP
+    name: http
+  selector:
+    app: hillfog
+
+---
+# Ingress
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: hillfog-ingress
+  namespace: hillfog
+  labels:
+    app: hillfog
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-dns"
+    nginx.ingress.kubernetes.io/ssl-protocols: "TLSv1.2 TLSv1.3"
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - hillfog.kingpac-th.com  # Change to your domain
+    secretName: hillfog-tls-cert
+  rules:
+  - host: hillfog.kingpac-th.com  # Change to your domain
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: hillfog-service
+            port:
+              number: 8088
