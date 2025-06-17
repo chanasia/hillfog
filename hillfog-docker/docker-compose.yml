@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  hillfog:
+    build: .
+    container_name: hillfog-app
+    ports:
+      - "8088:8088"
+    environment:
+      - JAVA_OPTS=-Xmx512M
+    volumes:
+      # Mount for persistent H2 database data
+      - hillfog_home:/home/hillfog
+      - hillfog_data:/app/data
+    restart: unless-stopped
+    networks:
+      - hillfog_network
+
+volumes:
+  hillfog_home:
+  hillfog_data:
+
+networks:
+  hillfog_network:
+    driver: bridge
