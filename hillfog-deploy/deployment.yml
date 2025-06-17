@@ -66,26 +66,19 @@ spec:
       labels:
         app: hillfog
     spec:
-      securityContext:
-        runAsNonRoot: true
-        runAsUser: 1000
-        runAsGroup: 1000
-        fsGroup: 1000
       containers:
       - name: hillfog
         image: 192.168.1.88:5000/hillfog:latest
-        imagePullPolicy: Always
         ports:
         - containerPort: 8088
-          name: http
         env:
         - name: JAVA_OPTS
-          valueFrom:
-            configMapKeyRef:
-              name: hillfog-config
-              key: JAVA_OPTS
+          value: "-Xmx512M"
         - name: HOME
           value: "/home/hillfog"
+        volumeMounts:
+        - name: hillfog-data
+          mountPath: /home/hillfog
         resources:
           requests:
             memory: "256Mi"
@@ -93,34 +86,9 @@ spec:
           limits:
             memory: "1Gi"
             cpu: "500m"
-        volumeMounts:
-        - name: hillfog-data
-          mountPath: /home/hillfog
-        - name: app-data
-          mountPath: /app/data
-        livenessProbe:
-          httpGet:
-            path: /
-            port: 8088
-          initialDelaySeconds: 60
-          periodSeconds: 30
-          timeoutSeconds: 10
-          failureThreshold: 3
-        readinessProbe:
-          httpGet:
-            path: /
-            port: 8088
-          initialDelaySeconds: 30
-          periodSeconds: 10
-          timeoutSeconds: 5
-          failureThreshold: 3
       volumes:
       - name: hillfog-data
-        persistentVolumeClaim:
-          claimName: hillfog-data-pvc
-      - name: app-data
         emptyDir: {}
-      restartPolicy: Always
 
 ---
 # Service
@@ -158,10 +126,10 @@ spec:
   ingressClassName: nginx
   tls:
   - hosts:
-    - hillfog.kingpac-th.com  # Change to your domain
+    - hillfog.kingpac-th.com
     secretName: hillfog-tls-cert
   rules:
-  - host: hillfog.kingpac-th.com  # Change to your domain
+  - host: hillfog.kingpac-th.com
     http:
       paths:
       - path: /
